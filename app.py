@@ -20,22 +20,22 @@ def chat():
         return res
     
     try:
-        # Универсальное получение данных
-        uid = request.form.get('user_id') or (request.json.get('user_id') if request.is_json else 'anon')
-        user_name = request.form.get('name') or (request.json.get('name') if request.is_json else 'Не указано')
-        msg = request.form.get('message') or (request.json.get('message') if request.is_json else '')
+        # Пытаемся взять данные из формы
+        uid = request.form.get('user_id', 'anon')
+        user_name = request.form.get('name', 'Не указано')
+        msg = request.form.get('message', '')
         file = request.files.get('file')
 
-        caption = f"📩 <b>Новое сообщение!</b>\n👤 Имя: {user_name}\n🆔 ID: <code>[{uid}]</code>\n\n📝 Сообщение: {msg}"
+        caption = f"📩 <b>Новое сообщение!</b>\n👤 Имя: {user_name}\n🆔 ID: <code>[{uid}]</code>\n\n📝 Текст: {msg}"
 
         if file:
             files = {'document': (file.filename, file.read())}
             requests.post(f"https://api.telegram.org/bot{TOKEN}/sendDocument", 
                           data={"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"}, 
-                          files=files, timeout=20)
+                          files=files)
         else:
             requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                          json={"chat_id": CHAT_ID, "text": caption, "parse_mode": "HTML"}, timeout=10)
+                          json={"chat_id": CHAT_ID, "text": caption, "parse_mode": "HTML"})
         
         return jsonify({"status": "ok"}), 200
     except Exception as e:
@@ -44,19 +44,7 @@ def chat():
 @app.route('/api/get_answer', methods=['GET'])
 def get_answer():
     uid = request.args.get('user_id')
-    ans = storage.get(uid)
-    if ans: del storage[uid]
-    return jsonify({"answer": ans})
-
-@app.route('/api/tg_webhook', methods=['POST'])
-def webhook():
-    data = request.get_json()
-    if data and "message" in data and "reply_to_message" in data["message"]:
-        txt = data["message"].get("text")
-        orig = data["message"]["reply_to_message"].get("text", "")
-        match = re.search(r"\[(\w+)\]", orig)
-        if match and txt: storage[match.group(1)] = txt
-    return jsonify({"status": "ok"})
+    return jsonify({"answer": storage.get(uid)})
 
 @app.route('/')
-def home(): return "Active", 200
+def home(): return "Bridge is active", 200
