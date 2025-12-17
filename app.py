@@ -6,6 +6,7 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
+# Ваши данные остаются прежними
 TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
 CHAT_ID = "1055949397"
 storage = {}
@@ -20,26 +21,26 @@ def chat():
         return res
     
     try:
-        # Получаем данные из формы (независимо от наличия файла)
-        uid = request.form.get('user_id', 'anon')
-        user_name = request.form.get('name', 'Не указано')
-        msg = request.form.get('message', '')
+        # Пытаемся взять данные из формы (для файлов) или из JSON
+        uid = request.form.get('user_id') or request.json.get('user_id', 'anon')
+        user_name = request.form.get('name') or request.json.get('name', 'Не указано')
+        msg = request.form.get('message') or request.json.get('message', '')
         file = request.files.get('file')
 
-        caption = f"📩 <b>Новое сообщение!</b>\n👤 Имя: {user_name}\n🆔 ID: <code>[{uid}]</code>\n\n📝 Сообщение: {msg}"
+        caption = f"📩 <b>Новое сообщение!</b>\n👤 Имя: {user_name}\n🆔 ID: <code>[{uid}]</code>\n\n📝 Текст: {msg}"
 
         if file:
-            # Если есть файл, используем метод sendDocument
+            # Если есть файл, отправляем его методом sendDocument
             files = {'document': (file.filename, file.read())}
-            requests.post(f"https://api.telegram.org/bot{TOKEN}/sendDocument", 
-                          data={"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"}, 
-                          files=files, timeout=15)
+            tg_res = requests.post(f"https://api.telegram.org/bot{TOKEN}/sendDocument", 
+                                   data={"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"}, 
+                                   files=files, timeout=20)
         else:
-            # Если файла нет, просто отправляем текст
-            requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                          json={"chat_id": CHAT_ID, "text": caption, "parse_mode": "HTML"}, timeout=10)
+            # Если файла нет, отправляем обычный текст
+            tg_res = requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                                   json={"chat_id": CHAT_ID, "text": caption, "parse_mode": "HTML"}, timeout=10)
         
-        return jsonify({"status": "ok"}), 200
+        return jsonify({"status": "ok", "tg_status": tg_res.status_code}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
