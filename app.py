@@ -20,34 +20,27 @@ def chat():
         return res
     
     try:
-        # Проверяем, как пришли данные (через форму или JSON)
-        if request.form:
-            uid = request.form.get('user_id', 'anon')
-            user_name = request.form.get('name', 'Не указано')
-            msg = request.form.get('message', '')
-        else:
-            data = request.get_json()
-            uid = data.get('user_id', 'anon')
-            user_name = data.get('name', 'Не указано')
-            msg = data.get('message', '')
-
+        # Получаем данные из формы (независимо от наличия файла)
+        uid = request.form.get('user_id', 'anon')
+        user_name = request.form.get('name', 'Не указано')
+        msg = request.form.get('message', '')
         file = request.files.get('file')
-        caption = f"📩 <b>Новое сообщение!</b>\n👤 Имя: {user_name}\n🆔 ID: <code>[{uid}]</code>\n\n📝 Текст: {msg}"
+
+        caption = f"📩 <b>Новое сообщение!</b>\n👤 Имя: {user_name}\n🆔 ID: <code>[{uid}]</code>\n\n📝 Сообщение: {msg}"
 
         if file:
-            # Отправляем как документ, если есть файл
+            # Если есть файл, используем метод sendDocument
             files = {'document': (file.filename, file.read())}
             requests.post(f"https://api.telegram.org/bot{TOKEN}/sendDocument", 
                           data={"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"}, 
                           files=files, timeout=15)
         else:
-            # Просто сообщение, если файла нет
+            # Если файла нет, просто отправляем текст
             requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
                           json={"chat_id": CHAT_ID, "text": caption, "parse_mode": "HTML"}, timeout=10)
         
         return jsonify({"status": "ok"}), 200
     except Exception as e:
-        print(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/get_answer', methods=['GET'])
