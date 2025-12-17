@@ -1,74 +1,72 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
+import os
 
 app = Flask(__name__)
 CORS(app)
 
-# --- ВАШИ ДАННЫЕ ---
 BOT_TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
 ADMIN_ID = "1055949397"
-
-# Хранилище сообщений в памяти (для ответов админа)
-messages_store = {} 
+messages_store = {}
 
 @app.route('/api/ai_chat', methods=['POST'])
-def initial_contact():
-    data = request.form
-    chat_id = data.get('chat_id', 'unknown')
-    name = data.get('name', 'Аноним')
-    contact = data.get('contact', 'Не указан')
-    msg = data.get('message', '')
+def initial():
+    chat_id = request.form.get('chat_id')
+    name = request.form.get('name', 'Клиент')
+    msg = request.form.get('message', '')
+    file = request.files.get('file')
 
-    # Формируем сообщение для вас в Telegram
-    # ВАЖНО: Не меняйте формат "ID чата: ...", по нему сервер понимает кому отвечать
-    text = f"🚀 Новый клиент на сайте!\n\n👤 Имя: {name}\n📞 Контакт: {contact}\n🆔 ID чата: {chat_id}\n\n💬 Вопрос: {msg}\n\n—————\nЧтобы ответить клиенту, просто сделайте REPLY (ответить) на это сообщение."
+    text = f"🚀 ЧАТ: {name}\n🆔 ID чата: {chat_id}\n💬: {msg}"
     
-    requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
-                  json={"chat_id": ADMIN_ID, "text": text})
+    if file:
+        files = {'document': (file.filename, file.read())}
+        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument", data={'chat_id': ADMIN_ID, 'caption': text}, files=files)
+    else:
+        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={'chat_id': ADMIN_ID, 'text': text})
     
     return jsonify({"status": "ok"}), 200
-
-@app.route('/api/send_message', methods=['POST'])
-def send_msg():
-    data = request.json
-    chat_id = data.get('chat_id')
-    text = data.get('message')
-    
-    requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
-                  json={"chat_id": ADMIN_ID, "text": f"📩 Новое сообщение (ID чата: {chat_id}):\n{text}"})
-    return jsonify({"status": "sent"}), 200
-
-@app.route('/api/get_messages', methods=['GET'])
-def get_msgs():
-    chat_id = request.args.get('chat_id')
-    if chat_id in messages_store and messages_store[chat_id]:
-        # Отдаем накопленные ответы админа клиенту
-        new_msgs = [{"text": m, "side": "admin"} for m in messages_store[chat_id]]
-        messages_store[chat_id] = [] # Очищаем после выдачи
-        return jsonify({"new_messages": new_msgs}), 200
-    return jsonify({"new_messages": []}), 200
 
 @app.route('/api/telegram_webhook', methods=['POST'])
 def webhook():
     data = request.json
-    if "message" in data and "reply_to_message" in data["message"]:
-        reply_text = data["message"]["reply_to_message"]["text"]
-        
-        # Ищем ID чата в тексте сообщения, на которое вы ответили
+    msg = data.get("message", {})
+    
+    if "reply_to_message" in msg:
+        reply_text = msg["reply_to_message"].get("text", msg["reply_to_message"].get("caption", ""))
         if "ID чата: " in reply_text:
-            try:
-                cid = reply_text.split("ID чата: ")[1].split("\n")[0].strip()
-                admin_answer = data["message"].get("text", "")
-                
-                if cid not in messages_store:
-                    messages_store[cid] = []
-                messages_store[cid].append(admin_answer)
-            except Exception as e:
-                print(f"Ошибка парсинга ID: {e}")
-        
+            cid = reply_text.split("ID чата: ")[1].split("\n")[0].strip()
+            
+            # Определяем имя отвечающего
+            sender_name = msg.get("from", {}).get("first_name", "Менеджер")
+            
+            if cid not in messages_store: messages_store[cid] = []
+            
+            # Если прислали файл в ответ
+            file_url = ""
+            if "document" in msg:
+                fid = msg["document"]["file_id"]
+                f_info = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={fid}").json()
+                file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{f_info['result']['file_path']}"
+
+            messages_store[cid].append({
+                "text": msg.get("text", "Файл во вложении"),
+                "sender": sender_name,
+                "file_url": file_url
+            })
+            
     return "OK", 200
 
-@app.route('/')
-def home():
-    return "Nuvera Bridge API is running!"
+@app.route('/api/get_messages', methods=['GET'])
+def get():
+    cid = request.args.get('chat_id')
+    msgs = messages_store.get(cid, [])
+    messages_store[cid] = []
+    return jsonify({"new_messages": msgs})
+
+@app.route('/api/send_message', methods=['POST'])
+def send():
+    d = request.json
+    requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
+                  json={'chat_id': ADMIN_ID, 'text': f"📩 Сообщение (ID чата: {d['chat_id']}):\n{d['message']}"})
+    return "OK"
