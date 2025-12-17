@@ -20,34 +20,25 @@ def chat():
         return res
     
     try:
-        # Получаем данные из FormData (как для текста, так и для файлов)
-        uid = request.form.get('user_id', 'anon')
-        user_name = request.form.get('name', 'Не указано')
-        msg = request.form.get('message', '')
+        # Универсальное получение данных
+        uid = request.form.get('user_id') or (request.json.get('user_id') if request.is_json else 'anon')
+        user_name = request.form.get('name') or (request.json.get('name') if request.is_json else 'Не указано')
+        msg = request.form.get('message') or (request.json.get('message') if request.is_json else '')
         file = request.files.get('file')
 
         caption = f"📩 <b>Новое сообщение!</b>\n👤 Имя: {user_name}\n🆔 ID: <code>[{uid}]</code>\n\n📝 Сообщение: {msg}"
 
         if file:
-            # Отправка файла (используем document, так как это универсально)
-            # Ограничение Vercel — файл должен быть меньше 4.5 МБ
             files = {'document': (file.filename, file.read())}
-            r = requests.post(
-                f"https://api.telegram.org/bot{TOKEN}/sendDocument",
-                data={"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"},
-                files=files
-            )
+            requests.post(f"https://api.telegram.org/bot{TOKEN}/sendDocument", 
+                          data={"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"}, 
+                          files=files, timeout=20)
         else:
-            # Отправка только текста
-            r = requests.post(
-                f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-                json={"chat_id": CHAT_ID, "text": caption, "parse_mode": "HTML"}
-            )
+            requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                          json={"chat_id": CHAT_ID, "text": caption, "parse_mode": "HTML"}, timeout=10)
         
-        return jsonify({"status": "ok", "tg_response": r.status_code}), 200
-
+        return jsonify({"status": "ok"}), 200
     except Exception as e:
-        # Возвращаем саму ошибку, чтобы увидеть её в алерте на сайте
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/get_answer', methods=['GET'])
@@ -68,4 +59,4 @@ def webhook():
     return jsonify({"status": "ok"})
 
 @app.route('/')
-def home(): return "Bridge is active", 200
+def home(): return "Active", 200
