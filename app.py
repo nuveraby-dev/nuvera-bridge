@@ -12,39 +12,48 @@ TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
 GROUP_ID = "-1003265048579" 
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-db_threads, db_clients, messages_store, chat_timestamps = {}, {}, {}, {}
+# Временные хранилища
+db_threads = {} 
+db_clients = {}
+messages_store = {} 
+chat_timestamps = {} 
 
-def cleanup_old_chats():
-    now = time.time()
-    to_delete = [cid for cid, t in chat_timestamps.items() if now - t > 86400]
-    for cid in to_delete:
-        thread_id = db_threads.get(cid)
-        if thread_id: db_clients.pop(thread_id, None)
-        for d in [db_threads, messages_store, chat_timestamps]: d.pop(cid, None)
-
-def create_topic(name):
-    url = f"{API_URL}/createForumTopic"
-    try:
-        res = requests.post(url, data={"chat_id": GROUP_ID, "name": f"КЛИЕНТ: {name}"}).json()
-        return res.get("result", {}).get("message_thread_id")
-    except: return None
+def handle_files(chat_id, thread_id, files):
+    """Отправка файлов в TG и сохранение в историю чата без ????"""
+    if not files: return
+    if chat_id not in messages_store: messages_store[chat_id] = []
+    
+    for f in files:
+        f_name = f.filename
+        content = f.read()
+        # Отправка документа в Telegram
+        requests.post(f"{API_URL}/sendDocument", 
+                      params={"chat_id": GROUP_ID, "message_thread_id": thread_id}, 
+                      files={"document": (f_name, content)})
+        # В историю пишем без спецсимволов
+        messages_store[chat_id].append({"text": f"FILE: {f_name}", "is_admin": False})
 
 @app.route('/api/ai_chat', methods=['POST'])
-def from_site():
-    cleanup_old_chats()
+def ai_chat():
     data = request.form
-    chat_id, name, contact = data.get("chat_id"), data.get("name"), data.get("contact")
-    # Ссылка формируется чисто, без лишних редиректов
+    chat_id = data.get("chat_id")
+    name = data.get("name")
+    contact = data.get("contact")
+    message = data.get("message") or "Новый запрос"
+    # Чистая ссылка для входа менеджера
     admin_link = f"{data.get('admin_link')}?id={chat_id}"
 
     if chat_id not in db_threads:
-        thread_id = create_topic(name)
+        res = requests.post(f"{API_URL}/createForumTopic", 
+                            data={"chat_id": GROUP_ID, "name": f"КЛИЕНТ: {name}"}).json()
+        thread_id = res.get("result", {}).get("message_thread_id")
         if thread_id:
-            db_threads[chat_id], db_clients[thread_id] = thread_id, chat_id
+            db_threads[chat_id] = thread_id
+            db_clients[thread_id] = chat_id
             chat_timestamps[chat_id] = time.time()
     
     thread_id = db_threads.get(chat_id)
-    text = f"👤 {name}\n📞 {contact}\n💬 {data.get('message', 'Начат чат')}\n\n🔗 Вход в чат: {admin_link}"
+    text = f"👤 {name}\n📞 {contact}\n💬 {message}\n\n🔗 Вход в диалог: {admin_link}"
     requests.post(f"{API_URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": thread_id, "text": text})
 
     handle_files(chat_id, thread_id, request.files.getlist("files[]"))
@@ -53,22 +62,15 @@ def from_site():
 @app.route('/api/send_message', methods=['POST'])
 def send_message():
     data = request.form
-    chat_id, text = data.get("chat_id"), data.get("message")
+    chat_id = data.get("chat_id")
+    text = data.get("message")
     thread_id = db_threads.get(chat_id)
+    
     if thread_id:
-        if text: requests.post(f"{API_URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": thread_id, "text": text})
+        if text:
+            requests.post(f"{API_URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": thread_id, "text": text})
         handle_files(chat_id, thread_id, request.files.getlist("files[]"))
     return jsonify({"status": "ok"})
-
-def handle_files(chat_id, thread_id, files):
-    if not files: return
-    if chat_id not in messages_store: messages_store[chat_id] = []
-    for f in files:
-        content = f.read()
-        # Отправка как документа в Telegram
-        requests.post(f"{API_URL}/sendDocument", params={"chat_id": GROUP_ID, "message_thread_id": thread_id}, files={"document": (f.filename, content)})
-        # Отображение в стиле мессенджера
-        messages_store[chat_id].append({"text": f"📎 {f.filename}", "is_admin": False})
 
 @app.route('/api/get_messages', methods=['GET'])
 def get_messages():
@@ -78,7 +80,7 @@ def get_messages():
     return jsonify({"new_messages": msgs})
 
 @app.route('/api/telegram_webhook', methods=['POST'])
-def from_telegram():
+def telegram_webhook():
     data = request.json
     if "message" in data:
         msg = data["message"]
@@ -87,3 +89,6 @@ def from_telegram():
             if client_id not in messages_store: messages_store[client_id] = []
             messages_store[client_id].append({"text": msg["text"], "is_admin": True})
     return "ok"
+
+if __name__ == '__main__':
+    app.run(debug=True)
