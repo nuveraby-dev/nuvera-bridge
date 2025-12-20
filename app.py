@@ -1,95 +1,68 @@
+import os
+import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import requests
 
 app = Flask(__name__)
 CORS(app)
 
-# ВАШИ ДАННЫЕ
-BOT_TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
-ADMIN_ID = "1055949397"
+# --- НАСТРОЙКИ ---
+TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
+GROUP_ID = "-1002360877840" 
+API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-messages_store = {}
-operator_names = {}
+# Словари для связи (после деплоя на Vercel они будут жить до перезагрузки сервера)
+db_threads = {} 
+db_clients = {}
 
-def send_tg_buttons(chat_id):
-    """Клавиатура выбора оператора"""
-    reply_markup = {
-        "keyboard": [[{"text": "Евгений"}, {"text": "Александр"}, {"text": "Яна"}]],
-        "resize_keyboard": True
-    }
-    requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
-                  json={"chat_id": chat_id, "text": "Выберите оператора для ответа:", "reply_markup": reply_markup})
+def create_topic(name):
+    """Создает новую ветку (Topic) в Telegram для каждого клиента"""
+    res = requests.post(f"{API_URL}/createForumTopic", data={
+        "chat_id": GROUP_ID,
+        "name": f"КЛИЕНТ: {name}"
+    }).json()
+    return res.get("result", {}).get("message_thread_id")
 
 @app.route('/api/ai_chat', methods=['POST'])
-def initial():
-    chat_id = request.form.get('chat_id')
-    name = request.form.get('name', '—')
-    contact = request.form.get('contact', '—') # ПОЛУЧАЕМ НОМЕР ТЕЛЕФОНА
-    msg = request.form.get('message', '')
-    file = request.files.get('file')
+def from_site():
+    """Принимает сообщение с Tilda и отправляет в нужную ветку Telegram"""
+    data = request.form
+    chat_id = data.get("chat_id")
+    name = data.get("name", "Новый клиент")
+    message = data.get("message", "Без текста")
+    admin_link = data.get("admin_link", "")
 
-    # Минималистичный шаблон сообщения для ТГ
-    text = (f"🔘 **НОВЫЙ ЗАКАЗ**\n\n"
-            f"👤 Клиент: {name}\n"
-            f"📞 Телефон: {contact}\n"
-            f"💬 Текст: {msg}\n\n"
-            f"ID: `{chat_id}`")
+    # Создаем топик, если его еще нет
+    if chat_id not in db_threads:
+        thread_id = create_topic(name)
+        db_threads[chat_id] = thread_id
+        db_clients[thread_id] = chat_id
     
-    if file:
-        files = {'document': (file.filename, file.read())}
-        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument", 
-                      data={'chat_id': ADMIN_ID, 'caption': text, 'parse_mode': 'Markdown'}, files=files)
-    else:
-        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
-                      json={'chat_id': ADMIN_ID, 'text': text, 'parse_mode': 'Markdown'})
+    thread_id = db_threads[chat_id]
     
-    if str(ADMIN_ID) not in operator_names:
-        send_tg_buttons(ADMIN_ID)
-        
-    return jsonify({"status": "ok"}), 200
+    # Текст сообщения в Telegram
+    text = f"👤 {name}\n💬 {message}\n\n🔗 Вход в чат: {admin_link}"
+    
+    requests.post(f"{API_URL}/sendMessage", data={
+        "chat_id": GROUP_ID,
+        "message_thread_id": thread_id,
+        "text": text
+    })
+
+    # Если клиент прикрепил файлы на сайте — пересылаем их в топик
+    files = request.files.getlist("files[]")
+    for f in files:
+        requests.post(f"{API_URL}/sendDocument", 
+                      params={"chat_id": GROUP_ID, "message_thread_id": thread_id},
+                      files={"document": (f.filename, f.read())})
+    
+    return jsonify({"status": "ok"})
 
 @app.route('/api/telegram_webhook', methods=['POST'])
-def webhook():
+def from_telegram():
+    """Эндпоинт для приема твоих ответов из Telegram (Webhook)"""
     data = request.json
-    if "message" not in data: return "OK", 200
-    msg = data["message"]
-    user_id = str(msg.get("from", {}).get("id"))
-    text = msg.get("text", "")
+    return "ok"
 
-    if text in ["Евгений", "Александр", "Яна"]:
-        operator_names[user_id] = text
-        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
-                      json={"chat_id": user_id, "text": f"✅ Вы отвечаете как: {text}"})
-        return "OK", 200
-
-    if "reply_to_message" in msg:
-        reply_msg = msg["reply_to_message"]
-        reply_text = reply_msg.get("text", reply_msg.get("caption", ""))
-        if "ID: " in reply_text:
-            cid = reply_text.split("ID: ")[1].strip().replace('`','')
-            current_name = operator_names.get(user_id, "Менеджер")
-            if cid not in messages_store: messages_store[cid] = []
-            
-            file_url = ""
-            if "document" in msg:
-                fid = msg["document"]["file_id"]
-                f_info = requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={fid}").json()
-                file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{f_info['result']['file_path']}"
-
-            messages_store[cid].append({"text": text or "📎 Файл", "sender": current_name, "file_url": file_url})
-    return "OK", 200
-
-@app.route('/api/get_messages', methods=['GET'])
-def get():
-    cid = request.args.get('chat_id')
-    msgs = messages_store.get(cid, [])
-    messages_store[cid] = []
-    return jsonify({"new_messages": msgs})
-
-@app.route('/api/send_message', methods=['POST'])
-def send():
-    d = request.json
-    requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
-                  json={'chat_id': ADMIN_ID, 'text': f"✉️ Сообщение (ID: `{d['chat_id']}`):\n{d['message']}", 'parse_mode': 'Markdown'})
-    return "OK"
+if __name__ == '__main__':
+    app.run(debug=True)
