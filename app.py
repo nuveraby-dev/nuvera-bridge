@@ -12,35 +12,34 @@ TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
 GROUP_ID = "-1003265048579" 
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-# Временные хранилища
 db_threads = {} 
 db_clients = {}
 messages_store = {} 
 chat_timestamps = {} 
 
-def handle_files(chat_id, thread_id, files):
-    """Отправка файлов в TG и сохранение в историю чата без ????"""
+def process_files(chat_id, thread_id, files):
+    """Отправка документов в TG и запись в историю чата без ????"""
     if not files: return
     if chat_id not in messages_store: messages_store[chat_id] = []
     
     for f in files:
         f_name = f.filename
         content = f.read()
-        # Отправка документа в Telegram
+        # Отправляем как документ
         requests.post(f"{API_URL}/sendDocument", 
                       params={"chat_id": GROUP_ID, "message_thread_id": thread_id}, 
                       files={"document": (f_name, content)})
-        # В историю пишем без спецсимволов
+        # Сохраняем в историю с префиксом FILE: вместо эмодзи
         messages_store[chat_id].append({"text": f"FILE: {f_name}", "is_admin": False})
 
 @app.route('/api/ai_chat', methods=['POST'])
-def ai_chat():
+def handle_initial_chat():
     data = request.form
     chat_id = data.get("chat_id")
     name = data.get("name")
     contact = data.get("contact")
-    message = data.get("message") or "Новый запрос"
-    # Чистая ссылка для входа менеджера
+    message = data.get("message") or "Заявка с сайта"
+    # Ссылка для менеджера
     admin_link = f"{data.get('admin_link')}?id={chat_id}"
 
     if chat_id not in db_threads:
@@ -53,14 +52,14 @@ def ai_chat():
             chat_timestamps[chat_id] = time.time()
     
     thread_id = db_threads.get(chat_id)
-    text = f"👤 {name}\n📞 {contact}\n💬 {message}\n\n🔗 Вход в диалог: {admin_link}"
+    text = f"👤 {name}\n📞 {contact}\n💬 {message}\n\n🔗 Вход: {admin_link}"
     requests.post(f"{API_URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": thread_id, "text": text})
 
-    handle_files(chat_id, thread_id, request.files.getlist("files[]"))
+    process_files(chat_id, thread_id, request.files.getlist("files[]"))
     return jsonify({"status": "ok"})
 
 @app.route('/api/send_message', methods=['POST'])
-def send_message():
+def handle_send_message():
     data = request.form
     chat_id = data.get("chat_id")
     text = data.get("message")
@@ -69,18 +68,18 @@ def send_message():
     if thread_id:
         if text:
             requests.post(f"{API_URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": thread_id, "text": text})
-        handle_files(chat_id, thread_id, request.files.getlist("files[]"))
+        process_files(chat_id, thread_id, request.files.getlist("files[]"))
     return jsonify({"status": "ok"})
 
 @app.route('/api/get_messages', methods=['GET'])
-def get_messages():
+def handle_get_messages():
     chat_id = request.args.get("chat_id")
     msgs = messages_store.get(chat_id, [])
     messages_store[chat_id] = [] 
     return jsonify({"new_messages": msgs})
 
 @app.route('/api/telegram_webhook', methods=['POST'])
-def telegram_webhook():
+def handle_webhook():
     data = request.json
     if "message" in data:
         msg = data["message"]
@@ -91,4 +90,4 @@ def telegram_webhook():
     return "ok"
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
