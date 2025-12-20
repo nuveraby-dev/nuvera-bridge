@@ -9,47 +9,55 @@ TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
 GROUP_ID = "-1003265048579"
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
-# Хранилище для передачи сообщений из ТГ на сайт
+# Временное хранилище ответов для сайта
 live_storage = {}
 
 @app.route('/ai_chat', methods=['POST'])
 def ai_chat():
     d = request.form
-    res = requests.post(f"{URL}/createForumTopic", data={"chat_id": GROUP_ID, "name": f"заказ: {d.get('name')}"}).json()
+    name = d.get('name', 'Клиент')
+    # Создаем новую тему в группе
+    res = requests.post(f"{URL}/createForumTopic", data={"chat_id": GROUP_ID, "name": f"Заказ: {name}"}).json()
     tid = str(res.get("result", {}).get("message_thread_id"))
+    
     if tid:
-        live_storage[tid] = []
-        admin_url = f"{d.get('admin_link')}#tid={tid}"
-        text = f"🌟 **Новый запрос**\n👤 {d.get('name')}\n📞 {d.get('contact')}\n💬 {d.get('message')}\n\n🔗 Ответить на сайте:\n{admin_url}"
-        requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": text})
+        live_storage[tid] = [] # Инициализируем очередь сообщений
+        text = f"🌟 **Новый запрос**\n👤 Имя: {name}\n📞 Контакт: {d.get('contact')}\n💬 Сообщение: {d.get('message')}"
+        requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": text, "parse_mode": "Markdown"})
+        
+        # Отправка файлов в ту же тему
+        if 'files[]' in request.files:
+            for f in request.files.getlist('files[]'):
+                requests.post(f"{URL}/sendDocument", params={"chat_id": GROUP_ID, "message_thread_id": tid}, files={"document": (f.filename, f.read())})
+        
         return jsonify({"status": "ok", "tid": tid})
     return jsonify({"status": "error"}), 400
 
 @app.route('/send_message', methods=['POST'])
-def send_message():
-    tid = str(request.form.get("tid"))
+def send_from_site():
+    tid = request.form.get("tid")
     msg = request.form.get("message")
-    is_admin = request.form.get("is_admin") == 'true'
-    if tid:
-        if not is_admin: # В ТГ шлем только если пишет клиент
-            requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": msg})
+    if tid and msg:
+        requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": msg})
     return jsonify({"status": "ok"})
 
-# ЭТА ЧАСТЬ ОТВЕЧАЕТ ЗА ПРИЕМ СООБЩЕНИЙ ИЗ ТГ
+# WEBHOOK: Сюда Telegram шлет ваши ответы из группы
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.json
     if "message" in data and "message_thread_id" in data["message"]:
         tid = str(data["message"]["message_thread_id"])
         text = data["message"].get("text")
-        if tid in live_storage and text:
-            # Записываем ваш ответ из ТГ в память для сайта
+        # Сохраняем сообщение, только если оно не от бота
+        if text and not data["message"].get("from", {}).get("is_bot"):
+            if tid not in live_storage: live_storage[tid] = []
             live_storage[tid].append({"text": text, "is_admin": True})
     return jsonify({"status": "ok"})
 
+# ПОЛЛИНГ: Сайт забирает ваши ответы отсюда
 @app.route('/get_updates', methods=['GET'])
 def get_updates():
-    tid = str(request.args.get("tid"))
+    tid = request.args.get("tid")
     msgs = live_storage.get(tid, [])
-    live_storage[tid] = [] # Очищаем после выдачи
+    live_storage[tid] = [] # Очищаем после выдачи, чтобы не дублировать
     return jsonify({"messages": msgs})
