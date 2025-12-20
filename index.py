@@ -4,19 +4,19 @@ from flask_cors import CORS
 import requests
 
 app = Flask(__name__)
-# Разрешаем запросы с любого домена, чтобы убрать CORS error
+# Разрешаем запросы со всех доменов (фикс CORS error)
 CORS(app)
 
-# Твои данные теперь в коде
+# Твой актуальный токен и ID группы
 TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
-CHAT_ID = "1055949397"
+CHAT_ID = "-1002361665448" # ID группы с префиксом -100
 
 def send_to_tg(text, files=None):
     # Отправка текстового сообщения
     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
                   json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"})
     
-    # Если есть прикрепленные файлы, отправляем их по очереди
+    # Отправка файлов, если они есть
     if files:
         for f in files:
             f.seek(0)
@@ -35,7 +35,7 @@ def ai_chat():
     
     try:
         send_to_tg(text, files)
-        # Генерируем ID чата для фронтенда
+        # Генерируем уникальный ID чата для фронтенда
         tid = "chat_" + str(abs(hash(contact)))
         return jsonify({"status": "ok", "tid": tid}), 200
     except Exception as e:
@@ -43,7 +43,6 @@ def ai_chat():
 
 @app.route('/send_message', methods=['POST'])
 def send_message():
-    # Обработка последующих сообщений в открытом чате
     tid = request.form.get('tid', 'Unknown')
     message = request.form.get('message', '')
     files = request.files.getlist('files[]')
@@ -58,9 +57,7 @@ def send_message():
 
 @app.route('/get_updates', methods=['GET'])
 def get_updates():
-    # Заглушка для лонг-поллинга
     return jsonify({"messages": []}), 200
 
-# Необходимо для деплоя на Vercel
 if __name__ == "__main__":
     app.run()
