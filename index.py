@@ -9,11 +9,13 @@ TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
 GROUP_ID = "-1003265048579"
 URL = f"https://api.telegram.org/bot{TOKEN}"
 
-def send_to_tg(tid, files):
-    """Универсальная функция отправки любых файлов в TG"""
+def upload_to_tg(tid, files):
+    """Отправка ЛЮБЫХ файлов через sendDocument"""
     for f in files:
         if f.filename:
-            requests.post(f"{URL}/sendDocument", params={"chat_id": GROUP_ID, "message_thread_id": tid}, files={"document": (f.filename, f.read())})
+            requests.post(f"{URL}/sendDocument", 
+                          params={"chat_id": GROUP_ID, "message_thread_id": tid}, 
+                          files={"document": (f.filename, f.read())})
 
 @app.route('/ai_chat', methods=['POST'])
 def ai_chat():
@@ -24,19 +26,27 @@ def ai_chat():
         tid = res.get("result", {}).get("message_thread_id")
         
         if tid:
-            # Ссылка теперь всегда ведет на главную с параметром tid
-            admin_url = f"{d.get('admin_link')}?tid={tid}"
-            text = f"🆕 **новый заказ**\n\n👤 имя: {name}\n📞 связь: {d.get('contact')}\n\n🔗 **ответить клиенту:**\n{admin_url}"
+            # Исправленная ссылка для админа
+            clean_url = d.get('admin_link').split('?')[0].rstrip('/')
+            admin_url = f"{clean_url}/?tid={tid}"
+            
+            text = (
+                f"🌟 **nuvera live: новый запрос**\n\n"
+                f"👤 **клиент:** {name}\n"
+                f"📞 **связь:** {d.get('contact')}\n"
+                f"💬 **сообщение:** {d.get('message')}\n\n"
+                f"📥 **ответить клиенту по ссылке:**\n{admin_url}"
+            )
             
             requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": text, "parse_mode": "Markdown"})
             
             if 'files[]' in request.files:
-                send_to_tg(tid, request.files.getlist('files[]'))
+                upload_to_tg(tid, request.files.getlist('files[]'))
             
             return jsonify({"status": "ok", "tid": tid})
     except Exception as e:
         return jsonify({"status": "error", "m": str(e)}), 500
-    return jsonify({"status": "error"}), 400
+    return jsonify({"status": "400"}), 400
 
 @app.route('/send_message', methods=['POST'])
 def send_message():
@@ -45,5 +55,5 @@ def send_message():
     if tid:
         if msg: requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": msg})
         if 'files[]' in request.files:
-            send_to_tg(tid, request.files.getlist('files[]'))
+            upload_to_tg(tid, request.files.getlist('files[]'))
     return jsonify({"status": "ok"})
