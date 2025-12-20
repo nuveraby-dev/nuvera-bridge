@@ -14,26 +14,25 @@ def ai_chat():
     try:
         d = request.form
         name = d.get('name', 'клиент')
-        # 1. Создаем отдельную тему для клиента
+        # Создаем тему в Telegram
         res = requests.post(f"{URL}/createForumTopic", data={"chat_id": GROUP_ID, "name": f"заказ: {name}"}).json()
         tid = res.get("result", {}).get("message_thread_id")
         
         if tid:
-            # 2. Формируем ссылку, которая откроет чат именно с этим tid
+            # Формируем прямую ссылку для входа администратора
+            # Ссылка будет иметь вид: https://nuvera-print.by/?tid=123
             admin_url = f"{d.get('admin_link')}?tid={tid}"
             
-            text = (
-                f"🆕 **новый заказ**\n\n"
+            msg_text = (
+                f"🆕 **новый запрос**\n\n"
                 f"👤 имя: {name}\n"
-                f"📞 связь: {d.get('contact')}\n"
-                f"💬 сообщение: {d.get('message')}\n\n"
-                f"🔗 **ответить клиенту в чате:**\n{admin_url}"
+                f"📞 контакт: {d.get('contact')}\n\n"
+                f"🔗 **открыть чат с клиентом:**\n{admin_url}"
             )
             
-            # Отправляем уведомление в тему
-            requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": text, "parse_mode": "Markdown"})
+            requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": msg_text, "parse_mode": "Markdown"})
             
-            # Отправляем файлы, если они есть
+            # Обработка вложений
             if 'files[]' in request.files:
                 for f in request.files.getlist('files[]'):
                     if f.filename:
@@ -41,7 +40,7 @@ def ai_chat():
             
             return jsonify({"status": "ok", "tid": tid})
     except Exception as e:
-        return jsonify({"status": "error", "msg": str(e)}), 500
+        return jsonify({"status": "error", "m": str(e)}), 500
     return jsonify({"status": "error"}), 400
 
 @app.route('/send_message', methods=['POST'])
