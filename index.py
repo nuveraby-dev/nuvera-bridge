@@ -13,24 +13,25 @@ URL = f"https://api.telegram.org/bot{TOKEN}"
 def ai_chat():
     try:
         d = request.form
-        # Создаем новую тему
-        res = requests.post(f"{URL}/createForumTopic", data={"chat_id": GROUP_ID, "name": f"Клиент: {d.get('name')}"}).json()
+        # Создаем тему
+        res = requests.post(f"{URL}/createForumTopic", data={"chat_id": GROUP_ID, "name": f"клиент: {d.get('name')}"}).json()
         tid = res.get("result", {}).get("message_thread_id")
         
         if tid:
             link = f"{d.get('admin_link')}?tid={tid}"
-            text = f"👤 имя: {d.get('name')}\n📞 связь: {d.get('contact')}\n💬 вопрос: {d.get('message')}\n\n🔗 ответить: {link}"
+            text = f"👤 имя: {d.get('name')}\n📞 связь: {d.get('contact')}\n💬 запрос: {d.get('message')}\n\n🔗 ответить: {link}"
             requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": text})
             
-            # Логика отправки файлов
+            # Обработка файлов с защитой от пустых имен
             if 'files[]' in request.files:
                 for f in request.files.getlist('files[]'):
-                    requests.post(f"{URL}/sendDocument", params={"chat_id": GROUP_ID, "message_thread_id": tid}, files={"document": (f.filename, f.read())})
+                    if f.filename:
+                        requests.post(f"{URL}/sendDocument", params={"chat_id": GROUP_ID, "message_thread_id": tid}, files={"document": (f.filename, f.read())})
             
             return jsonify({"status": "ok", "tid": tid})
     except Exception as e:
         return jsonify({"status": "error", "m": str(e)}), 500
-    return jsonify({"status": "404"})
+    return jsonify({"status": "not_found"}), 404
 
 @app.route('/send_message', methods=['POST'])
 def send_message():
@@ -38,7 +39,9 @@ def send_message():
     if tid:
         msg = request.form.get("message")
         if msg: requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": msg})
+        
         if 'files[]' in request.files:
             for f in request.files.getlist('files[]'):
-                requests.post(f"{URL}/sendDocument", params={"chat_id": GROUP_ID, "message_thread_id": tid}, files={"document": (f.filename, f.read())})
+                if f.filename:
+                    requests.post(f"{URL}/sendDocument", params={"chat_id": GROUP_ID, "message_thread_id": tid}, files={"document": (f.filename, f.read())})
     return jsonify({"status": "ok"})
