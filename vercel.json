@@ -1,7 +1,18 @@
 {
   "version": 2,
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "*" }
+      ]
+    }
+  ],
   "rewrites": [
     { "source": "/ai_chat", "destination": "index.py" },
-    { "source": "/send_message", "destination": "index.py" }
+    { "source": "/send_message", "destination": "index.py" },
+    { "source": "/get_updates", "destination": "index.py" }
   ]
 }
