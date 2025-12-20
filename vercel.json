@@ -1,18 +1,23 @@
 {
   "version": 2,
-  "headers": [
+  "builds": [
     {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "*" }
-      ]
+      "src": "index.py",
+      "use": "@vercel/python"
     }
   ],
-  "rewrites": [
-    { "source": "/ai_chat", "destination": "index.py" },
-    { "source": "/send_message", "destination": "index.py" },
-    { "source": "/get_updates", "destination": "index.py" }
+  "routes": [
+    {
+      "src": "/ai_chat",
+      "dest": "index.py"
+    },
+    {
+      "src": "/send_message",
+      "dest": "index.py"
+    },
+    {
+      "src": "/get_updates",
+      "dest": "index.py"
+    }
   ]
 }
