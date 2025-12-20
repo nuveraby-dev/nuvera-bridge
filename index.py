@@ -13,16 +13,27 @@ URL = f"https://api.telegram.org/bot{TOKEN}"
 def ai_chat():
     try:
         d = request.form
-        # Создаем тему
-        res = requests.post(f"{URL}/createForumTopic", data={"chat_id": GROUP_ID, "name": f"клиент: {d.get('name')}"}).json()
+        name = d.get('name', 'клиент')
+        # 1. Создаем отдельную тему для клиента
+        res = requests.post(f"{URL}/createForumTopic", data={"chat_id": GROUP_ID, "name": f"заказ: {name}"}).json()
         tid = res.get("result", {}).get("message_thread_id")
         
         if tid:
-            link = f"{d.get('admin_link')}?tid={tid}"
-            text = f"👤 имя: {d.get('name')}\n📞 связь: {d.get('contact')}\n💬 запрос: {d.get('message')}\n\n🔗 ответить: {link}"
-            requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": text})
+            # 2. Формируем ссылку, которая откроет чат именно с этим tid
+            admin_url = f"{d.get('admin_link')}?tid={tid}"
             
-            # Обработка файлов с защитой от пустых имен
+            text = (
+                f"🆕 **новый заказ**\n\n"
+                f"👤 имя: {name}\n"
+                f"📞 связь: {d.get('contact')}\n"
+                f"💬 сообщение: {d.get('message')}\n\n"
+                f"🔗 **ответить клиенту в чате:**\n{admin_url}"
+            )
+            
+            # Отправляем уведомление в тему
+            requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": text, "parse_mode": "Markdown"})
+            
+            # Отправляем файлы, если они есть
             if 'files[]' in request.files:
                 for f in request.files.getlist('files[]'):
                     if f.filename:
@@ -30,18 +41,13 @@ def ai_chat():
             
             return jsonify({"status": "ok", "tid": tid})
     except Exception as e:
-        return jsonify({"status": "error", "m": str(e)}), 500
-    return jsonify({"status": "not_found"}), 404
+        return jsonify({"status": "error", "msg": str(e)}), 500
+    return jsonify({"status": "error"}), 400
 
 @app.route('/send_message', methods=['POST'])
 def send_message():
     tid = request.form.get("tid")
-    if tid:
-        msg = request.form.get("message")
-        if msg: requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": msg})
-        
-        if 'files[]' in request.files:
-            for f in request.files.getlist('files[]'):
-                if f.filename:
-                    requests.post(f"{URL}/sendDocument", params={"chat_id": GROUP_ID, "message_thread_id": tid}, files={"document": (f.filename, f.read())})
+    msg = request.form.get("message")
+    if tid and msg:
+        requests.post(f"{URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": tid, "text": msg})
     return jsonify({"status": "ok"})
