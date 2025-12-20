@@ -12,21 +12,15 @@ TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
 GROUP_ID = "-1003265048579" 
 API_URL = f"https://api.telegram.org/bot{TOKEN}"
 
-db_threads = {} 
-db_clients = {}
-messages_store = {} 
-chat_timestamps = {} 
+db_threads, db_clients, messages_store, chat_timestamps = {}, {}, {}, {}
 
 def cleanup_old_chats():
     now = time.time()
-    one_day = 86400 
-    to_delete = [cid for cid, t in chat_timestamps.items() if now - t > one_day]
+    to_delete = [cid for cid, t in chat_timestamps.items() if now - t > 86400]
     for cid in to_delete:
         thread_id = db_threads.get(cid)
         if thread_id: db_clients.pop(thread_id, None)
-        db_threads.pop(cid, None)
-        messages_store.pop(cid, None)
-        chat_timestamps.pop(cid, None)
+        for d in [db_threads, messages_store, chat_timestamps]: d.pop(cid, None)
 
 def create_topic(name):
     url = f"{API_URL}/createForumTopic"
@@ -39,11 +33,9 @@ def create_topic(name):
 def from_site():
     cleanup_old_chats()
     data = request.form
-    chat_id = data.get("chat_id")
-    name, contact = data.get("name"), data.get("contact")
-    message = data.get("message") or "Чат начат"
-    base_link = data.get("admin_link")
-    admin_link = f"{base_link}?id={chat_id}"
+    chat_id, name, contact = data.get("chat_id"), data.get("name"), data.get("contact")
+    # Ссылка формируется чисто, без лишних редиректов
+    admin_link = f"{data.get('admin_link')}?id={chat_id}"
 
     if chat_id not in db_threads:
         thread_id = create_topic(name)
@@ -52,39 +44,31 @@ def from_site():
             chat_timestamps[chat_id] = time.time()
     
     thread_id = db_threads.get(chat_id)
-    text = f"👤 {name}\n📞 {contact}\n💬 {message}\n\n🔗 Вход: {admin_link}"
+    text = f"👤 {name}\n📞 {contact}\n💬 {data.get('message', 'Начат чат')}\n\n🔗 Вход в чат: {admin_link}"
     requests.post(f"{API_URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": thread_id, "text": text})
 
-    # Файлы при старте
     handle_files(chat_id, thread_id, request.files.getlist("files[]"))
     return jsonify({"status": "ok"})
 
 @app.route('/api/send_message', methods=['POST'])
 def send_message():
     data = request.form
-    chat_id = data.get("chat_id")
-    text = data.get("message")
+    chat_id, text = data.get("chat_id"), data.get("message")
     thread_id = db_threads.get(chat_id)
-    
     if thread_id:
-        # Отправка текста
-        if text:
-            requests.post(f"{API_URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": thread_id, "text": text})
-        
-        # Отправка новых файлов из чата
+        if text: requests.post(f"{API_URL}/sendMessage", data={"chat_id": GROUP_ID, "message_thread_id": thread_id, "text": text})
         handle_files(chat_id, thread_id, request.files.getlist("files[]"))
-            
     return jsonify({"status": "ok"})
 
 def handle_files(chat_id, thread_id, files):
-    """Общая функция обработки файлов без '????'"""
     if not files: return
     if chat_id not in messages_store: messages_store[chat_id] = []
     for f in files:
         content = f.read()
+        # Отправка как документа в Telegram
         requests.post(f"{API_URL}/sendDocument", params={"chat_id": GROUP_ID, "message_thread_id": thread_id}, files={"document": (f.filename, content)})
-        # Убрали эмодзи, которые вызывали знаки вопроса
-        messages_store[chat_id].append({"text": f"Файл: {f.filename}", "is_admin": False})
+        # Отображение в стиле мессенджера
+        messages_store[chat_id].append({"text": f"📎 {f.filename}", "is_admin": False})
 
 @app.route('/api/get_messages', methods=['GET'])
 def get_messages():
