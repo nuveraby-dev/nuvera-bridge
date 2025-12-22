@@ -19,32 +19,31 @@ def ai_chat():
         message = request.form.get('message', '')
         files = request.files.getlist('files[]')
 
-        # Определяем ID топика
-        if tid and tid != "undefined" and tid != "null":
+        # Обработка или создание топика
+        if tid and tid not in ["null", "undefined", ""]:
             target_tid = int(tid)
         else:
             topic = bot.create_forum_topic(CHAT_ID, f"Заявка: {name}")
             target_tid = topic.message_thread_id
-            header = f"🚀 Новая заявка!\n👤 Имя: {name}\n📞 Контакт: {contact}"
-            bot.send_message(CHAT_ID, header, message_thread_id=target_tid)
+            bot.send_message(CHAT_ID, f"🚀 **Новая заявка!**\n👤 {name}\n📞 {contact}", 
+                             message_thread_id=target_tid, parse_mode="Markdown")
 
-        # Отправка текста
+        # Отправка текста сообщения
         if message:
             bot.send_message(CHAT_ID, message, message_thread_id=target_tid)
 
-        # Отправка файлов
-        for file in files:
-            bot.send_document(CHAT_ID, (file.filename, file.read()), message_thread_id=target_tid)
+        # Исправленная отправка файлов
+        for f in files:
+            if f.filename:
+                file_data = f.read()
+                bot.send_document(CHAT_ID, (f.filename, file_data), message_thread_id=target_tid)
 
         return jsonify({"status": "ok", "tid": target_tid})
     except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        print(f"Server Error: {str(e)}")
+        return jsonify({"status": "error", "error": str(e)}), 500
 
-# Заглушка, чтобы фронтенд не получал 500 ошибку при опросе
 @app.route('/get_messages', methods=['GET'])
 def get_messages():
+    # Заглушка для предотвращения 500 ошибок при Long Polling без БД
     return jsonify({"messages": []})
-
-if __name__ == '__main__':
-    app.run(port=5000)
