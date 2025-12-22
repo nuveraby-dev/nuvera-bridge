@@ -12,10 +12,10 @@ CHAT_ID = "-1003265048579"
 def tg_api(method, data, files=None):
     url = f"https://api.telegram.org/bot{TOKEN}/{method}"
     try:
-        r = requests.post(url, data=data, files=files, timeout=10)
+        r = requests.post(url, data=data, files=files)
         return r.json()
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "description": str(e)}
 
 @app.route('/ai_chat', methods=['POST'])
 def ai_chat():
@@ -24,18 +24,18 @@ def ai_chat():
     message = request.form.get('message', '')
     files = request.files.getlist('files[]')
     
-    # Создаем топик
+    # Пытаемся создать топик
     topic = tg_api("createForumTopic", {"chat_id": CHAT_ID, "name": f"{name} | {contact}"})
     
     if not topic.get("ok"):
-        # Если не удалось создать топик, пробуем отправить в общий чат
-        tg_api("sendMessage", {"chat_id": CHAT_ID, "text": f"Ошибка топика! Заявка: {name} {contact}\n{message}"})
-        return jsonify({"status": "partial_ok", "error": topic.get("description")}), 200
+        # Если группа не поддерживает топики, шлем в корень чата
+        fallback_text = f"👤 {name}\n📞 {contact}\n💬 {message}"
+        res = send_to_thread(None, fallback_text, files)
+        return jsonify({"status": "sent_to_main", "details": res}), 200
             
     tid = topic["result"]["message_thread_id"]
-    caption = f"👤 {name}\n📞 {contact}\n💬 {message}"
+    caption = f"🚀 Новая заявка!\n👤 {name}\n📞 {contact}\n💬 {message}"
     send_to_thread(tid, caption, files)
-    
     return jsonify({"status": "ok", "tid": tid}), 200
 
 @app.route('/send_message', methods=['POST'])
@@ -43,21 +43,24 @@ def send_message():
     tid = request.form.get('tid')
     msg = request.form.get('message', '')
     files = request.files.getlist('files[]')
-    if tid:
-        send_to_thread(tid, msg, files)
-        return jsonify({"status": "sent"}), 200
-    return jsonify({"error": "no_tid"}), 400
+    send_to_thread(tid, msg, files)
+    return jsonify({"status": "sent"}), 200
 
 def send_to_thread(tid, text, files):
+    data = {"chat_id": CHAT_ID}
+    if tid: data["message_thread_id"] = tid
+    
     if not files:
-        tg_api("sendMessage", {"chat_id": CHAT_ID, "message_thread_id": tid, "text": text})
+        data["text"] = text
+        return tg_api("sendMessage", data)
     else:
         media = []
         f_dict = {}
         for i, f in enumerate(files):
             key = f"f{i}"
-            f_dict[key] = (f.filename, f.read())
+            f_dict[key] = (f.filename, f.read()) # Сохраняем имя файла для избежания ????
             item = {"type": "document", "media": f"attach://{key}"}
             if i == 0 and text: item["caption"] = text
             media.append(item)
-        tg_api("sendMediaGroup", {"chat_id": CHAT_ID, "message_thread_id": tid, "media": json.dumps(media)}, files=f_dict)
+        data["media"] = json.dumps(media)
+        return tg_api("sendMediaGroup", data, files=f_dict)
