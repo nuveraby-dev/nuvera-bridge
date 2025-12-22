@@ -7,7 +7,6 @@ app = Flask(__name__)
 CORS(app)
 
 TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
-# ID группы (супергруппы), где включены темы
 CHAT_ID = "-1003265048579" 
 
 def tg_api(method, data, files=None):
@@ -20,54 +19,42 @@ def ai_chat():
         contact = request.form.get('contact', '-')
         message = request.form.get('message', '')
         files = request.files.getlist('files[]')
-
-        # 1. Создаем новую тему для клиента
-        topic_res = tg_api("createForumTopic", {"chat_id": CHAT_ID, "name": f"{name} | {contact}"}).json()
         
-        if not topic_res.get("ok"):
-            return jsonify({"error": "Failed to create topic"}), 500
+        # Создаем топик
+        topic = tg_api("createForumTopic", {"chat_id": CHAT_ID, "name": f"{name} | {contact}"}).json()
+        if not topic.get("ok"): return jsonify({"error": topic}), 500
             
-        thread_id = topic_res["result"]["message_thread_id"]
-        caption = f"🚀 **Новая заявка!**\n👤 Имя: {name}\n📞 Контакт: {contact}\n💬 {message}"
-
-        # 2. Отправляем контент в созданную тему
-        send_to_thread(thread_id, caption, files)
-
-        return jsonify({"status": "ok", "tid": thread_id}), 200
+        tid = topic["result"]["message_thread_id"]
+        caption = f"🚀 Новая заявка!\n👤 {name}\n📞 {contact}\n💬 {message}"
+        send_to_thread(tid, caption, files)
+        
+        return jsonify({"status": "ok", "tid": tid}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route('/send_message', methods=['POST'])
 def send_message():
     try:
-        thread_id = request.form.get('tid') # Получаем ID топика из localStorage клиента
-        message = request.form.get('message', '')
+        tid = request.form.get('tid')
+        msg = request.form.get('message', '')
         files = request.files.getlist('files[]')
-
-        if thread_id:
-            send_to_thread(thread_id, message, files)
+        if tid:
+            send_to_thread(tid, msg, files)
             return jsonify({"status": "sent"}), 200
-        return jsonify({"error": "No thread ID"}), 400
+        return jsonify({"error": "no_tid"}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-def send_to_thread(thread_id, text, files):
+def send_to_thread(tid, text, files):
     if not files:
-        if text:
-            tg_api("sendMessage", {"chat_id": CHAT_ID, "message_thread_id": thread_id, "text": text, "parse_mode": "Markdown"})
+        if text: tg_api("sendMessage", {"chat_id": CHAT_ID, "message_thread_id": tid, "text": text})
     else:
         media = []
-        files_dict = {}
+        f_dict = {}
         for i, f in enumerate(files):
-            f_key = f"f{i}"
-            f.seek(0)
-            files_dict[f_key] = (f.filename, f.read())
-            item = {"type": "document", "media": f"attach://{f_key}"}
+            key = f"f{i}"
+            f_dict[key] = (f.filename, f.read())
+            item = {"type": "document", "media": f"attach://{key}"}
             if i == 0 and text: item["caption"] = text
             media.append(item)
-        
-        tg_api("sendMediaGroup", {
-            "chat_id": CHAT_ID, 
-            "message_thread_id": thread_id, 
-            "media": json.dumps(media)
-        }, files=files_dict)
+        tg_api("sendMediaGroup", {"chat_id": CHAT_ID, "message_thread_id": tid, "media": json.dumps(media)}, files=f_dict)
