@@ -20,7 +20,7 @@ def ai_chat():
         message = request.form.get('message', '')
         files = request.files.getlist('files[]')
         
-        # Создаем топик
+        # Создаем топик в Telegram
         topic = tg_api("createForumTopic", {"chat_id": CHAT_ID, "name": f"{name} | {contact}"}).json()
         if not topic.get("ok"): return jsonify({"error": topic}), 500
             
@@ -57,4 +57,5 @@ def send_to_thread(tid, text, files):
             item = {"type": "document", "media": f"attach://{key}"}
             if i == 0 and text: item["caption"] = text
             media.append(item)
+        # Отправка альбомом
         tg_api("sendMediaGroup", {"chat_id": CHAT_ID, "message_thread_id": tid, "media": json.dumps(media)}, files=f_dict)
