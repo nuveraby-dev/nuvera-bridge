@@ -4,45 +4,49 @@ import requests
 import json
 
 app = Flask(__name__)
-# Максимально разрешаем запросы с любого источника (CORS)
+# Разрешаем CORS для всех доменов, чтобы убрать "Provisional headers"
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
 CHAT_ID = "-1003265048579"
 
-# 1. Убираем 404 ошибки для системных запросов
+# Решение проблемы 404 для корня и иконок
 @app.route('/')
 @app.route('/favicon.ico')
 @app.route('/favicon.png')
-def health_check():
-    return "API Active", 200
+def home():
+    return "Nuvera Bridge Active", 200
 
-# Обработка создания топика
-@app.route('/ai_chat', methods=['POST'])
+@app.route('/ai_chat', methods=['POST', 'OPTIONS'])
 def ai_chat():
+    if request.method == 'OPTIONS': 
+        return _build_cors_preflight_response()
+    
     name = request.form.get('name', 'Гость')
     contact = request.form.get('contact', '-')
     message = request.form.get('message', '')
     files = request.files.getlist('files[]')
     
+    # Создание топика
     topic = tg_api("createForumTopic", {"chat_id": CHAT_ID, "name": f"{name} | {contact}"})
     tid = topic["result"]["message_thread_id"] if topic.get("ok") else None
     
-    caption = f"🚀 Заявка!\n👤 {name}\n📞 {contact}\n💬 {message}"
+    caption = f"👤 {name}\n📞 {contact}\n💬 {message}"
     send_to_thread(tid, caption, files)
-    return jsonify({"status": "ok", "tid": tid}), 200
+    return _corsify_actual_response(jsonify({"status": "ok", "tid": tid}))
 
-# 2. Обработка повторных сообщений
-@app.route('/send_message', methods=['POST'])
+@app.route('/send_message', methods=['POST', 'OPTIONS'])
 def send_message():
+    if request.method == 'OPTIONS': 
+        return _build_cors_preflight_response()
+    
     tid = request.form.get('tid')
-    # Очистка ID от строк типа "null"
-    v_tid = tid if tid and tid not in ["None", "null", "undefined"] else None
+    valid_tid = tid if tid and tid not in ["None", "null", "undefined"] else None
     msg = request.form.get('message', '')
     files = request.files.getlist('files[]')
     
-    send_to_thread(v_tid, msg, files)
-    return jsonify({"status": "sent"}), 200
+    send_to_thread(valid_tid, msg, files)
+    return _corsify_actual_response(jsonify({"status": "sent"}))
 
 def tg_api(method, data, files=None):
     try:
@@ -63,11 +67,22 @@ def send_to_thread(tid, text, files):
         f_dict = {}
         for i, f in enumerate(files):
             key = f"f{i}"
-            # 3. ИСПРАВЛЕНИЕ КОДИРОВКИ (убираем ????)
-            # Передаем имя файла в правильном формате кортежа
+            # Исправление кодировки имен (убираем ????)
             f_dict[key] = (f.filename, f.read())
             item = {"type": "document", "media": f"attach://{key}"}
             if i == 0 and text: item["caption"] = text
             media.append(item)
         params["media"] = json.dumps(media)
         return tg_api("sendMediaGroup", params, files=f_dict)
+
+# Функции для принудительного CORS (решает проблему зависания запросов)
+def _build_cors_preflight_response():
+    response = make_response()
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    response.headers.add('Access-Control-Allow-Headers', "*")
+    response.headers.add('Access-Control-Allow-Methods', "*")
+    return response
+
+def _corsify_actual_response(response):
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    return response
