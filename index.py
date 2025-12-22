@@ -4,10 +4,11 @@ import requests
 import json
 
 app = Flask(__name__)
-# Полный доступ для Tilda, чтобы убрать "Provisional headers"
+# Разрешаем CORS для всех, чтобы браузер не блокировал запросы
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
+# ВАЖНО: Убедитесь, что ID группы верный и бот там АДМИН
 CHAT_ID = "-1003265048579"
 
 @app.route('/')
@@ -24,15 +25,17 @@ def ai_chat():
     message = request.form.get('message', '')
     files = request.files.getlist('files[]')
     
-    # Создание топика
+    # 1. Пробуем создать топик
     t_res = tg_api("createForumTopic", {"chat_id": CHAT_ID, "name": f"{name} | {contact}"})
     
     if not t_res.get("ok"):
-        return _corsify(jsonify({"status": "error", "reason": "TG_TOPIC_FAIL", "details": t_res}), 500)
+        # Если не удалось создать топик, возвращаем ошибку для диагностики
+        return _corsify(jsonify({"status": "error", "stage": "topic_creation", "tg_err": t_res}), 500)
         
     tid = t_res["result"]["message_thread_id"]
     caption = f"🚀 Новая заявка!\n👤 {name}\n📞 {contact}\n💬 {message}"
     
+    # 2. Пробуем отправить сообщение
     tg_send_res = send_to_thread(tid, caption, files)
     return _corsify(jsonify({"status": "ok", "tid": tid, "tg_debug": tg_send_res}))
 
@@ -63,7 +66,7 @@ def send_to_thread(tid, text, files):
         media, f_dict = [], {}
         for i, f in enumerate(files):
             key = f"f{i}"
-            # Исправление кодировки для кириллицы (убираем ????)
+            # Исправляем кириллицу в названиях
             f_dict[key] = (f.filename.encode('utf-8').decode('latin-1'), f.read())
             item = {"type": "document", "media": f"attach://{key}"}
             if i == 0 and text: item["caption"] = text
