@@ -12,7 +12,7 @@ CHAT_ID = "-1003265048579"
 def tg_api(method, data, files=None):
     url = f"https://api.telegram.org/bot{TOKEN}/{method}"
     try:
-        r = requests.post(url, data=data, files=files)
+        r = requests.post(url, data=data, files=files, timeout=15)
         return r.json()
     except Exception as e:
         return {"ok": False, "description": str(e)}
@@ -24,11 +24,11 @@ def ai_chat():
     message = request.form.get('message', '')
     files = request.files.getlist('files[]')
     
-    # Пытаемся создать топик
+    # 1. Пробуем создать топик
     topic = tg_api("createForumTopic", {"chat_id": CHAT_ID, "name": f"{name} | {contact}"})
     
+    # 2. Если топик не создался (группа не поддерживает или нет прав), шлем в корень
     if not topic.get("ok"):
-        # Если группа не поддерживает топики, шлем в корень чата
         fallback_text = f"👤 {name}\n📞 {contact}\n💬 {message}"
         res = send_to_thread(None, fallback_text, files)
         return jsonify({"status": "sent_to_main", "details": res}), 200
@@ -43,7 +43,8 @@ def send_message():
     tid = request.form.get('tid')
     msg = request.form.get('message', '')
     files = request.files.getlist('files[]')
-    send_to_thread(tid, msg, files)
+    # Если tid пустой, сообщение уйдет в корень чата
+    send_to_thread(tid if tid else None, msg, files)
     return jsonify({"status": "sent"}), 200
 
 def send_to_thread(tid, text, files):
@@ -58,7 +59,8 @@ def send_to_thread(tid, text, files):
         f_dict = {}
         for i, f in enumerate(files):
             key = f"f{i}"
-            f_dict[key] = (f.filename, f.read()) # Сохраняем имя файла для избежания ????
+            # Сохраняем имя файла корректно
+            f_dict[key] = (f.filename, f.read())
             item = {"type": "document", "media": f"attach://{key}"}
             if i == 0 and text: item["caption"] = text
             media.append(item)
