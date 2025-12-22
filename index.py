@@ -1,17 +1,20 @@
 import os
 import telebot
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}}) # Разрешаем запросы со всех доменов
 
 TOKEN = "7709282362:AAG84Y2Y2Dsc067e7E_B18eHhFmY-fG2880"
 CHAT_ID = "-1002345686001"
 bot = telebot.TeleBot(TOKEN)
 
-@app.route('/ai_chat', methods=['POST'])
+@app.route('/ai_chat', methods=['POST', 'OPTIONS'])
 def ai_chat():
+    if request.method == 'OPTIONS':
+        return _build_cors_preflight_response()
+        
     try:
         tid = request.form.get('tid')
         name = request.form.get('name', 'Гость')
@@ -19,7 +22,6 @@ def ai_chat():
         message = request.form.get('message', '')
         files = request.files.getlist('files[]')
 
-        # Обработка или создание топика
         if tid and tid not in ["null", "undefined", ""]:
             target_tid = int(tid)
         else:
@@ -28,22 +30,30 @@ def ai_chat():
             bot.send_message(CHAT_ID, f"🚀 **Новая заявка!**\n👤 {name}\n📞 {contact}", 
                              message_thread_id=target_tid, parse_mode="Markdown")
 
-        # Отправка текста сообщения
         if message:
             bot.send_message(CHAT_ID, message, message_thread_id=target_tid)
 
-        # Исправленная отправка файлов
         for f in files:
             if f.filename:
-                file_data = f.read()
-                bot.send_document(CHAT_ID, (f.filename, file_data), message_thread_id=target_tid)
+                # Важно: передаем (имя_файла, контент) для стабильности
+                bot.send_document(CHAT_ID, (f.filename, f.read()), message_thread_id=target_tid)
 
-        return jsonify({"status": "ok", "tid": target_tid})
+        return _corsify_actual_response(jsonify({"status": "ok", "tid": target_tid}))
     except Exception as e:
-        print(f"Server Error: {str(e)}")
-        return jsonify({"status": "error", "error": str(e)}), 500
+        return _corsify_actual_response(jsonify({"status": "error", "message": str(e)}), 500)
+
+def _build_cors_preflight_response():
+    response = make_response()
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    response.headers.add('Access-Control-Allow-Headers', "*")
+    response.headers.add('Access-Control-Allow-Methods', "*")
+    return response
+
+def _corsify_actual_response(response, status=200):
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    return response, status
 
 @app.route('/get_messages', methods=['GET'])
 def get_messages():
-    # Заглушка для предотвращения 500 ошибок при Long Polling без БД
-    return jsonify({"messages": []})
+    # Заглушка, чтобы опрос сообщений не выдавал 500 ошибку в консоль
+    return _corsify_actual_response(jsonify({"messages": []}))
