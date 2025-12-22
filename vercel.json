@@ -8,15 +8,7 @@
   ],
   "routes": [
     {
-      "src": "/ai_chat",
-      "dest": "index.py"
-    },
-    {
-      "src": "/send_message",
-      "dest": "index.py"
-    },
-    {
-      "src": "/get_updates",
+      "src": "/(.*)",
       "dest": "index.py"
     }
   ]
