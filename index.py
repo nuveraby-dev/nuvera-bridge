@@ -11,7 +11,7 @@ CHAT_ID = "-1003265048579"
 
 def tg_api(method, data, files=None):
     try:
-        r = requests.post(f"https://api.telegram.org/bot{TOKEN}/{method}", data=data, files=files, timeout=20)
+        r = requests.post(f"https://api.telegram.org/bot{TOKEN}/{method}", data=data, files=files, timeout=25)
         return r.json()
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -23,7 +23,6 @@ def ai_chat():
     message = request.form.get('message', '')
     files = request.files.getlist('files[]')
     
-    # Создание топика
     topic = tg_api("createForumTopic", {"chat_id": CHAT_ID, "name": f"{name} | {contact}"})
     tid = topic["result"]["message_thread_id"] if topic.get("ok") else None
     
@@ -34,6 +33,7 @@ def ai_chat():
 @app.route('/send_message', methods=['POST'])
 def send_message():
     tid = request.form.get('tid')
+    # Очистка ID от мусора
     valid_tid = tid if tid and tid not in ["None", "null", "undefined"] else None
     msg = request.form.get('message', '')
     files = request.files.getlist('files[]')
@@ -53,10 +53,15 @@ def send_to_thread(tid, text, files):
         f_dict = {}
         for i, f in enumerate(files):
             key = f"f{i}"
-            # Решение проблемы с кириллицей (????)
+            # Исправляем кодировку: (Имя_Файла, Контент)
             f_dict[key] = (f.filename, f.read())
             item = {"type": "document", "media": f"attach://{key}"}
             if i == 0 and text: item["caption"] = text
             media.append(item)
         params["media"] = json.dumps(media)
         return tg_api("sendMediaGroup", params, files=f_dict)
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def catch_all(path):
+    return jsonify({"status": "bridge_active", "info": "Nuvera API is running"}), 200
