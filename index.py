@@ -4,17 +4,26 @@ from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}}) # Разрешаем запросы со всех доменов
+# Принудительная настройка CORS для всех маршрутов
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 TOKEN = "7709282362:AAG84Y2Y2Dsc067e7E_B18eHhFmY-fG2880"
 CHAT_ID = "-1002345686001"
 bot = telebot.TeleBot(TOKEN)
 
+# Вспомогательная функция для добавления CORS заголовков в каждый ответ
+def _corsify_actual_response(response):
+    response.headers.add("Access-Control-Allow-Origin", "*")
+    response.headers.add("Access-Control-Allow-Headers", "*")
+    response.headers.add("Access-Control-Allow-Methods", "*")
+    return response
+
 @app.route('/ai_chat', methods=['POST', 'OPTIONS'])
 def ai_chat():
+    # Обработка предварительного запроса браузера (Preflight)
     if request.method == 'OPTIONS':
-        return _build_cors_preflight_response()
-        
+        return _corsify_actual_response(make_response())
+
     try:
         tid = request.form.get('tid')
         name = request.form.get('name', 'Гость')
@@ -35,25 +44,17 @@ def ai_chat():
 
         for f in files:
             if f.filename:
-                # Важно: передаем (имя_файла, контент) для стабильности
+                # Передаем файл как (имя, данные) для предотвращения 500 ошибки
                 bot.send_document(CHAT_ID, (f.filename, f.read()), message_thread_id=target_tid)
 
-        return _corsify_actual_response(jsonify({"status": "ok", "tid": target_tid}))
+        res = jsonify({"status": "ok", "tid": target_tid})
+        return _corsify_actual_response(res)
     except Exception as e:
-        return _corsify_actual_response(jsonify({"status": "error", "message": str(e)}), 500)
-
-def _build_cors_preflight_response():
-    response = make_response()
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    response.headers.add('Access-Control-Allow-Headers', "*")
-    response.headers.add('Access-Control-Allow-Methods', "*")
-    return response
-
-def _corsify_actual_response(response, status=200):
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    return response, status
+        print(f"Server Error: {str(e)}")
+        res = jsonify({"status": "error", "message": str(e)})
+        return _corsify_actual_response(make_response(res, 500))
 
 @app.route('/get_messages', methods=['GET'])
 def get_messages():
-    # Заглушка, чтобы опрос сообщений не выдавал 500 ошибку в консоль
+    # Заглушка для опросника, чтобы не было 500 ошибки в логах
     return _corsify_actual_response(jsonify({"messages": []}))
