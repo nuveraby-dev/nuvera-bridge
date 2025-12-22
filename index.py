@@ -4,30 +4,22 @@ import requests
 import json
 
 app = Flask(__name__)
-# Разрешаем CORS для вашего домена
+# Максимально разрешаем запросы с любого источника (CORS)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
 CHAT_ID = "-1003265048579"
 
-def tg_api(method, data, files=None):
-    try:
-        r = requests.post(f"https://api.telegram.org/bot{TOKEN}/{method}", data=data, files=files, timeout=20)
-        return r.json()
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-# Заглушка для корня и иконок (убирает 404 в логах)
+# 1. Убираем 404 ошибки для системных запросов
 @app.route('/')
 @app.route('/favicon.ico')
 @app.route('/favicon.png')
-def home():
-    return "Bridge is active", 200
+def health_check():
+    return "API Active", 200
 
-@app.route('/ai_chat', methods=['POST', 'OPTIONS'])
+# Обработка создания топика
+@app.route('/ai_chat', methods=['POST'])
 def ai_chat():
-    if request.method == 'OPTIONS': return _build_cors_preflight_response()
-    
     name = request.form.get('name', 'Гость')
     contact = request.form.get('contact', '-')
     message = request.form.get('message', '')
@@ -36,21 +28,28 @@ def ai_chat():
     topic = tg_api("createForumTopic", {"chat_id": CHAT_ID, "name": f"{name} | {contact}"})
     tid = topic["result"]["message_thread_id"] if topic.get("ok") else None
     
-    caption = f"👤 {name}\n📞 {contact}\n💬 {message}"
+    caption = f"🚀 Заявка!\n👤 {name}\n📞 {contact}\n💬 {message}"
     send_to_thread(tid, caption, files)
-    return _corsify_actual_response(jsonify({"status": "ok", "tid": tid}))
+    return jsonify({"status": "ok", "tid": tid}), 200
 
-@app.route('/send_message', methods=['POST', 'OPTIONS'])
+# 2. Обработка повторных сообщений
+@app.route('/send_message', methods=['POST'])
 def send_message():
-    if request.method == 'OPTIONS': return _build_cors_preflight_response()
-    
     tid = request.form.get('tid')
-    valid_tid = tid if tid and tid not in ["None", "null", "undefined"] else None
+    # Очистка ID от строк типа "null"
+    v_tid = tid if tid and tid not in ["None", "null", "undefined"] else None
     msg = request.form.get('message', '')
     files = request.files.getlist('files[]')
     
-    send_to_thread(valid_tid, msg, files)
-    return _corsify_actual_response(jsonify({"status": "sent"}))
+    send_to_thread(v_tid, msg, files)
+    return jsonify({"status": "sent"}), 200
+
+def tg_api(method, data, files=None):
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{TOKEN}/{method}", data=data, files=files, timeout=25)
+        return r.json()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 def send_to_thread(tid, text, files):
     params = {"chat_id": CHAT_ID}
@@ -64,21 +63,11 @@ def send_to_thread(tid, text, files):
         f_dict = {}
         for i, f in enumerate(files):
             key = f"f{i}"
-            # Исправляем кодировку имени файла (убираем ????)
-            f_dict[key] = (f.filename.encode('utf-8').decode('latin-1'), f.read())
+            # 3. ИСПРАВЛЕНИЕ КОДИРОВКИ (убираем ????)
+            # Передаем имя файла в правильном формате кортежа
+            f_dict[key] = (f.filename, f.read())
             item = {"type": "document", "media": f"attach://{key}"}
             if i == 0 and text: item["caption"] = text
             media.append(item)
         params["media"] = json.dumps(media)
         return tg_api("sendMediaGroup", params, files=f_dict)
-
-def _build_cors_preflight_response():
-    response = make_response()
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    response.headers.add('Access-Control-Allow-Headers', "*")
-    response.headers.add('Access-Control-Allow-Methods', "*")
-    return response
-
-def _corsify_actual_response(response):
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    return response
