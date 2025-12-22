@@ -1,86 +1,62 @@
-from flask import Flask, request, jsonify, make_response
+import os
+import telebot
+from flask import Flask, request, jsonify
 from flask_cors import CORS
-import requests
-import json
 
 app = Flask(__name__)
-# Разрешаем CORS для всех, чтобы браузер не блокировал запросы
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app)
 
-TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
-# ВАЖНО: Убедитесь, что ID группы верный и бот там АДМИН
-CHAT_ID = "-1003265048579"
+# --- ВАШИ ДАННЫЕ ---
+TOKEN = "7709282362:AAG84Y2Y2Dsc067e7E_B18eHhFmY-fG2880"
+CHAT_ID = "-1002345686001" # ID вашей группы (обязательно с -100)
+# ------------------
 
-@app.route('/')
-@app.route('/favicon.ico')
-def health():
-    return "API Active", 200
+bot = telebot.TeleBot(TOKEN)
 
-@app.route('/ai_chat', methods=['POST', 'OPTIONS'])
+@app.route('/ai_chat', methods=['POST'])
 def ai_chat():
-    if request.method == 'OPTIONS': return _cors_preflight()
-    
-    name = request.form.get('name', 'Гость')
-    contact = request.form.get('contact', '-')
-    message = request.form.get('message', '')
-    files = request.files.getlist('files[]')
-    
-    # 1. Пробуем создать топик
-    t_res = tg_api("createForumTopic", {"chat_id": CHAT_ID, "name": f"{name} | {contact}"})
-    
-    if not t_res.get("ok"):
-        # Если не удалось создать топик, возвращаем ошибку для диагностики
-        return _corsify(jsonify({"status": "error", "stage": "topic_creation", "tg_err": t_res}), 500)
-        
-    tid = t_res["result"]["message_thread_id"]
-    caption = f"🚀 Новая заявка!\n👤 {name}\n📞 {contact}\n💬 {message}"
-    
-    # 2. Пробуем отправить сообщение
-    tg_send_res = send_to_thread(tid, caption, files)
-    return _corsify(jsonify({"status": "ok", "tid": tid, "tg_debug": tg_send_res}))
-
-@app.route('/send_message', methods=['POST', 'OPTIONS'])
-def send_message():
-    if request.method == 'OPTIONS': return _cors_preflight()
-    
-    tid = request.form.get('tid')
-    msg = request.form.get('message', '')
-    files = request.files.getlist('files[]')
-    
-    res = send_to_thread(tid, msg, files)
-    return _corsify(jsonify({"status": "sent", "tg_debug": res}))
-
-def tg_api(method, data, files=None):
     try:
-        r = requests.post(f"https://api.telegram.org/bot{TOKEN}/{method}", data=data, files=files, timeout=25)
-        return r.json()
+        # Получаем данные из FormData
+        tid = request.form.get('tid') 
+        name = request.form.get('name', 'Гость')
+        contact = request.form.get('contact', '-')
+        message = request.form.get('message', '')
+        files = request.files.getlist('files[]')
+
+        # Если TID пришел — пишем в старый топик
+        if tid:
+            target_tid = int(tid)
+            if message:
+                bot.send_message(CHAT_ID, f"💬 {message}", message_thread_id=target_tid)
+        
+        # Если TID нет — создаем новый топик (новую ветку)
+        else:
+            # Создаем топик в группе
+            topic = bot.create_forum_topic(CHAT_ID, f"Заявка: {name}")
+            target_tid = topic.message_thread_id
+            
+            # Отправляем карточку клиента первым сообщением в топик
+            welcome_text = f"🚀 **Новая заявка!**\n👤 Имя: {name}\n📞 Контакт: {contact}\n\n📝 Сообщение: {message}"
+            bot.send_message(CHAT_ID, welcome_text, message_thread_id=target_tid, parse_mode="Markdown")
+
+        # Если к сообщению прикреплены файлы
+        for file in files:
+            file_content = file.read()
+            if file_content:
+                bot.send_document(
+                    CHAT_ID, 
+                    file_content, 
+                    visible_file_name=file.filename, 
+                    message_thread_id=target_tid
+                )
+
+        # Возвращаем TID фронтенду, чтобы он его сохранил в localStorage
+        return jsonify({"status": "ok", "tid": target_tid})
+
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        print(f"Ошибка: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-def send_to_thread(tid, text, files):
-    params = {"chat_id": CHAT_ID, "message_thread_id": tid}
-    if not files:
-        params["text"] = text
-        return tg_api("sendMessage", params)
-    else:
-        media, f_dict = [], {}
-        for i, f in enumerate(files):
-            key = f"f{i}"
-            # Исправляем кириллицу в названиях
-            f_dict[key] = (f.filename.encode('utf-8').decode('latin-1'), f.read())
-            item = {"type": "document", "media": f"attach://{key}"}
-            if i == 0 and text: item["caption"] = text
-            media.append(item)
-        params["media"] = json.dumps(media)
-        return tg_api("sendMediaGroup", params, files=f_dict)
-
-def _cors_preflight():
-    response = make_response()
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    response.headers.add('Access-Control-Allow-Headers', "*")
-    response.headers.add('Access-Control-Allow-Methods', "*")
-    return response
-
-def _corsify(res, status=200):
-    res.headers.add("Access-Control-Allow-Origin", "*")
-    return res, status
+# Для локальной отладки
+if __name__ == '__main__':
+    app.run(port=5000)
