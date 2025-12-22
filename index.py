@@ -10,8 +10,9 @@ TOKEN = "8514796589:AAEJqdm3DsCtki-gneHQTLEEIUZKqyiz_tg"
 CHAT_ID = "-1003265048579"
 
 def tg_api(method, data, files=None):
+    url = f"https://api.telegram.org/bot{TOKEN}/{method}"
     try:
-        r = requests.post(f"https://api.telegram.org/bot{TOKEN}/{method}", data=data, files=files, timeout=15)
+        r = requests.post(url, data=data, files=files, timeout=15)
         return r.json()
     except Exception as e:
         return {"ok": False, "description": str(e)}
@@ -23,24 +24,24 @@ def ai_chat():
     message = request.form.get('message', '')
     files = request.files.getlist('files[]')
     
-    # Пытаемся создать топик
+    # Создаем топик
     topic = tg_api("createForumTopic", {"chat_id": CHAT_ID, "name": f"{name} | {contact}"})
     tid = topic["result"]["message_thread_id"] if topic.get("ok") else None
     
     caption = f"🚀 Новая заявка!\n👤 {name}\n📞 {contact}\n💬 {message}"
     send_to_thread(tid, caption, files)
-    return jsonify({"status": "ok", "tid": tid})
+    return jsonify({"status": "ok", "tid": tid}), 200
 
 @app.route('/send_message', methods=['POST'])
 def send_message():
     tid = request.form.get('tid')
-    # Проверка на корректность tid
+    # Защита от пустых или некорректных ID
     valid_tid = tid if tid and tid not in ["None", "null", "undefined"] else None
     msg = request.form.get('message', '')
     files = request.files.getlist('files[]')
     
     send_to_thread(valid_tid, msg, files)
-    return jsonify({"status": "sent"})
+    return jsonify({"status": "sent"}), 200
 
 def send_to_thread(tid, text, files):
     params = {"chat_id": CHAT_ID}
@@ -54,10 +55,14 @@ def send_to_thread(tid, text, files):
         f_dict = {}
         for i, f in enumerate(files):
             key = f"f{i}"
-            # Передаем содержимое и имя файла напрямую для сохранения кодировки
-            f_dict[key] = (f.filename, f.read()) 
+            # Сохраняем оригинальное имя файла (решает проблему с ????)
+            f_dict[key] = (f.filename, f.read())
             item = {"type": "document", "media": f"attach://{key}"}
             if i == 0 and text: item["caption"] = text
             media.append(item)
         params["media"] = json.dumps(media)
         return tg_api("sendMediaGroup", params, files=f_dict)
+
+# Для работы на Vercel
+if __name__ == "__main__":
+    app.run()
